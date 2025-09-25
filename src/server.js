@@ -1,220 +1,131 @@
-import Fastify from 'fastify'
-import cors from '@fastify/cors'
-import helmet from '@fastify/helmet'
-import rateLimit from '@fastify/rate-limit'
-import swagger from '@fastify/swagger'
-import swaggerUi from '@fastify/swagger-ui'
-import dotenv from 'dotenv'
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
+import dotenv from 'dotenv';
 
-import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
-import { testConnection } from './config/supabase.js'
+// Importar funções e rotas
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { testConnection } from './config/supabase.js';
+import digimonRoutes from './routes/digimons.js';
+import healthRoutes from './routes/health.js';
 
-// Importar rotas
-import digimonRoutes from './routes/digimons.js'
-import healthRoutes from './routes/health.js'
+// --- PASSO 1: Carregar e Validar Variáveis de Ambiente ---
+// Isso é a primeira coisa que o script faz.
+dotenv.config();
 
-// Carregar variáveis de ambiente
-dotenv.config()
+const {
+  PORT,
+  HOST,
+  CORS_ORIGIN,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY
+} = process.env;
 
-/**
- * Configuração do servidor Fastify
- */
+// Validação crítica: Se as chaves do Supabase não existirem, o servidor não deve nem tentar iniciar.
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error("🔥🔥🔥 ERRO CRÍTICO: As variáveis de ambiente SUPABASE_URL e SUPABASE_ANON_KEY são obrigatórias.");
+  console.error("Verifique se você criou um arquivo .env na raiz do projeto 'digimon-api'.");
+  process.exit(1); // Encerra o processo imediatamente com um código de erro.
+}
+
+// --- PASSO 2: Inicializar o Servidor Fastify ---
 const fastify = Fastify({
-})
+  // Logger é ótimo para desenvolvimento.
+  // logger: {
+  //   level: 'info',
+  //   transport: {
+  //     target: 'pino-pretty',
+  //     options: {
+  //       translateTime: 'HH:MM:ss Z',
+  //       ignore: 'pid,hostname',
+  //     },
+  //   },
+  // },
+});
 
-/**
- * Registrar plugins
- */
-async function registerPlugins() {
-  // CORS
-  await fastify.register(cors, {
-    origin: process.env.CORS_ORIGIN || true,
-    credentials: true
-  })
+// --- PASSO 3: Função Principal de Inicialização ---
+async function startServer() {
+  try {
+    console.log('🔌 Registrando plugins...');
+    // CORS: Permite que seu frontend (ex: localhost:3000) acesse a API
+    await fastify.register(cors, {
+      origin: CORS_ORIGIN || 'http://localhost:3000', // Permite o frontend local por padrão
+      credentials: true,
+    } );
 
-  // Helmet para segurança
-  await fastify.register(helmet, {
-    contentSecurityPolicy: false // Desabilitar para Swagger UI
-  })
+    // Helmet para segurança básica
+    await fastify.register(helmet, { contentSecurityPolicy: false });
 
-  // Rate limiting
-  await fastify.register(rateLimit, {
-    max: parseInt(process.env.RATE_LIMIT_MAX) || 100,
-    timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW) || 60000, // 1 minuto
-    errorResponseBuilder: (request, context) => {
-      return {
-        error: true,
-        message: 'Muitas requisições. Tente novamente em alguns instantes.',
-        statusCode: 429,
-        retryAfter: Math.round(context.ttl / 1000)
-      }
-    }
-  })
+    // Rate Limiting para evitar abuso
+    await fastify.register(rateLimit, {
+      max: 100,
+      timeWindow: '1 minute',
+    });
 
-  // Swagger para documentação
-  await fastify.register(swagger, {
-    swagger: {
-      info: {
-        title: 'Digimon Evolution API',
-        description: 'API RESTful para consulta de dados de Digimons, evoluções e requisitos',
-        version: '1.0.0',
-        contact: {
-          name: 'Digimon Evolution Team',
-          email: 'contact@digimon-evolution.com'
-        }
+    // Swagger para documentação da API
+    await fastify.register(swagger, {
+      swagger: {
+        info: {
+          title: 'Digimon Evolution API',
+          description: 'API para consulta de dados de Digimons e suas evoluções.',
+          version: '1.0.0',
+        },
+        host: `localhost:${PORT || 3001}`,
+        schemes: ['http'],
+        tags: [
+          { name: 'Health', description: 'Verificação de status da API' },
+          { name: 'Digimons', description: 'Operações com Digimons' },
+        ],
       },
-      host: process.env.HOST || 'localhost:3001',
-      schemes: ['http', 'https'],
-      consumes: ['application/json'],
-      produces: ['application/json'],
-      tags: [
-        { name: 'Health', description: 'Endpoints de health check' },
-        { name: 'Digimons', description: 'Operações com Digimons' },
-        { name: 'Evoluções', description: 'Operações com evoluções' }
-      ]
+    } );
+
+    // Interface gráfica do Swagger
+    await fastify.register(swaggerUi, {
+      routePrefix: '/docs',
+    });
+
+    console.log('🔗 Registrando rotas...');
+    // Rota raiz para uma mensagem de boas-vindas
+    fastify.get('/', () => ({
+      message: 'Bem-vindo à Digimon Evolution API!',
+      docs: '/docs',
+    }));
+
+    // Registrar as rotas dos seus módulos
+    await fastify.register(healthRoutes, { prefix: '/health' });
+    await fastify.register(digimonRoutes, { prefix: '/api/digimons' });
+
+    console.log('🔧 Configurando handlers de erro...');
+    fastify.setErrorHandler(errorHandler);
+    fastify.setNotFoundHandler(notFoundHandler);
+
+    console.log('📡 Testando conexão com o banco de dados...');
+    const connection = await testConnection();
+    if (!connection.success) {
+      // O erro já foi validado no início, mas esta é uma segunda verificação.
+      throw new Error(`Falha na conexão com o Supabase: ${connection.message}`);
     }
-  })
+    console.log('✅ Conexão com Supabase estabelecida com sucesso!');
 
-  // Swagger UI
-  await fastify.register(swaggerUi, {
-    routePrefix: '/docs',
-    uiConfig: {
-      docExpansion: 'list',
-      deepLinking: false
-    },
-    staticCSP: true,
-    transformStaticCSP: (header) => header,
-    transformSpecification: (swaggerObject, request, reply) => {
-      return swaggerObject
-    },
-    transformSpecificationClone: true
-  })
-}
+    // Iniciar o servidor
+    const serverHost = HOST || '0.0.0.0';
+    const serverPort = parseInt(PORT) || 3001;
 
-/**
- * Registrar rotas
- */
-async function registerRoutes() {
-  // Rota raiz
-  fastify.get('/', async (request, reply) => {
-    return {
-      message: 'Digimon Evolution API',
-      version: '1.0.0',
-      documentation: '/docs',
-      health: '/health',
-      endpoints: {
-        digimons: '/api/digimons',
-        search: '/api/digimons/search',
-        stats: '/api/digimons/stats'
-      }
-    }
-  })
+    await fastify.listen({ host: serverHost, port: serverPort });
 
-  // Registrar rotas com prefixos
-  await fastify.register(healthRoutes, { prefix: '/health' })
-  await fastify.register(digimonRoutes, { prefix: '/api/digimons' })
-}
+    // O logger do Fastify já exibe a mensagem de "servidor rodando",
+    // mas podemos adicionar uma extra para a documentação.
+    fastify.log.info(`📚 Documentação da API disponível em http://localhost:${serverPort}/docs` );
 
-/**
- * Configurar handlers de erro
- */
-function setupErrorHandlers() {
-  fastify.setErrorHandler(errorHandler)
-  fastify.setNotFoundHandler(notFoundHandler)
-}
-
-/**
- * Hook para verificar conexão na inicialização
- */
-fastify.addHook('onReady', async () => {
-  const connection = await testConnection()
-  if (!connection.success) {
-    fastify.log.error('Falha na conexão com Supabase:', connection.message)
-    throw new Error('Não foi possível conectar ao banco de dados')
-  }
-  fastify.log.info('Conexão com Supabase estabelecida com sucesso')
-})
-
-/**
- * Hook para log de requisições
- */
-fastify.addHook('onRequest', async (request, reply) => {
-  request.log.info({
-    method: request.method,
-    url: request.url,
-    userAgent: request.headers['user-agent'],
-    ip: request.ip
-  }, 'Requisição recebida')
-})
-
-/**
- * Hook para log de respostas
- */
-fastify.addHook('onSend', async (request, reply, payload) => {
-  request.log.info({
-    method: request.method,
-    url: request.url,
-    statusCode: reply.statusCode,
-    responseTime: reply.getResponseTime()
-  }, 'Resposta enviada')
-})
-
-/**
- * Inicializar servidor
- */
-async function start() {
-  try {
-    // Registrar plugins
-    await registerPlugins()
-    
-    // Configurar handlers de erro
-    setupErrorHandlers()
-    
-    // Registrar rotas
-    await registerRoutes()
-    
-    // Configurações do servidor
-    const host = process.env.HOST || '0.0.0.0'
-    const port = parseInt(process.env.PORT) || 3001
-    
-    // Iniciar servidor
-    await fastify.listen({ host, port })
-    
-    fastify.log.info(`🚀 Servidor rodando em http://${host}:${port}`)
-    fastify.log.info(`📚 Documentação disponível em http://${host}:${port}/docs`)
-    
   } catch (error) {
-    fastify.log.error('Erro ao iniciar servidor:', error)
-    process.exit(1)
+    // Se qualquer passo acima falhar, o erro será capturado aqui.
+    fastify.log.error('❌ Erro ao iniciar o servidor:', error);
+    process.exit(1);
   }
 }
 
-/**
- * Graceful shutdown
- */
-process.on('SIGINT', async () => {
-  fastify.log.info('Recebido SIGINT, encerrando servidor...')
-  try {
-    await fastify.close()
-    fastify.log.info('Servidor encerrado com sucesso')
-    process.exit(0)
-  } catch (error) {
-    fastify.log.error('Erro ao encerrar servidor:', error)
-    process.exit(1)
-  }
-})
-
-process.on('SIGTERM', async () => {
-  fastify.log.info('Recebido SIGTERM, encerrando servidor...')
-  try {
-    await fastify.close()
-    fastify.log.info('Servidor encerrado com sucesso')
-    process.exit(0)
-  } catch (error) {
-    fastify.log.error('Erro ao encerrar servidor:', error)
-    process.exit(1)
-  }
-})
-
-// Iniciar servidor
-start()
+// --- PASSO 4: Executar o Servidor ---
+startServer();
