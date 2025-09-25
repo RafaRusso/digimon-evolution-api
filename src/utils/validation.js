@@ -1,6 +1,4 @@
-/**
- * Schemas de validação para os endpoints
- */
+// src/utils/validation.js
 
 export const schemas = {
   // Schema para busca de Digimons
@@ -12,7 +10,7 @@ export const schemas = {
           type: 'string', 
           minLength: 1,
           maxLength: 100,
-          description: 'Termo de busca'
+          description: 'Termo de busca para o nome do Digimon'
         },
         limit: { 
           type: 'integer', 
@@ -46,22 +44,24 @@ export const schemas = {
         },
         stage: { 
           type: 'string',
-          enum: ['I', 'II', 'III', 'IV', 'V', 'VI', 'VI+', 'Human Hybrid', 'Beast Hybrid'],
-          description: 'Filtrar por stage'
+          // Adicionamos todos os stages possíveis do seu JSON para uma validação robusta
+          enum: ['I', 'II', 'III', 'IV', 'V', 'VI', 'VI+', 'Armor', 'Human Hybrid', 'Beast Hybrid', 'Fusion Hybrid', 'Golden Armor', 'Transcendent Hybrid', 'Unknown', 'N/A'],
+          description: 'Filtrar por estágio de evolução'
         }
       }
     }
   },
 
-  // Schema para parâmetros de ID
+  // Schema para parâmetros de ID (AJUSTADO)
   digimonId: {
     params: {
       type: 'object',
       properties: {
+        // MUDANÇA: Agora esperamos um número inteiro (integer) em vez de um UUID.
         id: { 
-          type: 'string',
-          format: 'uuid',
-          description: 'ID do Digimon'
+          type: 'integer',
+          minimum: 1,
+          description: 'O ID numérico do Digimon'
         }
       },
       required: ['id']
@@ -77,45 +77,39 @@ export const schemas = {
           type: 'string',
           minLength: 1,
           maxLength: 255,
-          description: 'Nome do Digimon'
+          description: 'Nome exato do Digimon (case-sensitive)'
         }
       },
       required: ['name']
     }
   }
-}
+};
+
+// As funções utilitárias permanecem as mesmas, pois são genéricas e úteis.
 
 /**
- * Valida se um UUID é válido
- */
-export function isValidUUID(uuid) {
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-  return uuidRegex.test(uuid)
-}
-
-/**
- * Sanitiza termo de busca
+ * Sanitiza termo de busca para evitar injeções simples.
  */
 export function sanitizeSearchTerm(term) {
   if (!term || typeof term !== 'string') {
-    return ''
+    return '';
   }
   
   return term
     .trim()
-    .replace(/[<>]/g, '') // Remove caracteres perigosos
-    .substring(0, 100) // Limita tamanho
+    .replace(/[<>]/g, '') // Remove caracteres que podem ser usados em ataques XSS
+    .substring(0, 100); // Limita o tamanho para performance
 }
 
 /**
- * Valida parâmetros de paginação
+ * Valida e normaliza parâmetros de paginação.
  */
 export function validatePagination(page, limit) {
-  const validatedPage = Math.max(1, parseInt(page) || 1)
-  const validatedLimit = Math.min(100, Math.max(1, parseInt(limit) || 50))
+  const validatedPage = Math.max(1, parseInt(page) || 1);
+  const validatedLimit = Math.min(100, Math.max(1, parseInt(limit) || 50));
   
   return {
     page: validatedPage,
     limit: validatedLimit
-  }
+  };
 }
