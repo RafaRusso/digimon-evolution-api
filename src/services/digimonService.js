@@ -1,170 +1,325 @@
-// src/services/digimonService.js
-
-import { supabase } from '../config/supabase.js';
-
-// Função auxiliar para formatar os dados, evitando repetição
-function formatDigimon(digimon) {
-  if (!digimon) return null;
-  return {
-    id: digimon.id,
-    number: digimon.number,
-    name: digimon.name,
-    stage: digimon.stage,
-    attribute: digimon.attribute,
-    image_url: digimon.image_url,
-  };
-}
+import { supabase } from '../config/supabase.js'
 
 export class DigimonService {
-
+  
   /**
-   * Busca todos os Digimons com paginação e filtro opcional por stage.
+   * Busca todos os Digimons com paginação
    */
-  async getAllDigimons({ page = 1, limit = 50, stage }) {
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-
-    let query = supabase
-      .from('digimons')
-      .select('*', { count: 'exact' }) // 'exact' para obter a contagem total
-      .order('number', { ascending: true })
-      .range(from, to);
-
-    // Aplica o filtro de stage se ele for fornecido
-    if (stage) {
-      query = query.eq('stage', stage);
+  async getAllDigimons(page = 1, limit = 50, stage = null) {
+    try {
+      let query = supabase
+        .from('digimons')
+        .select('*')
+        .order('number', { ascending: true })
+      
+      // Filtrar por stage se especificado
+      if (stage) {
+        query = query.eq('stage', stage)
+      }
+      
+      // Aplicar paginação
+      const from = (page - 1) * limit
+      const to = from + limit - 1
+      query = query.range(from, to)
+      
+      const { data, error, count } = await query
+      
+      if (error) {
+        throw error
+      }
+      
+      return {
+        data,
+        pagination: {
+          page,
+          limit,
+          total: count,
+          totalPages: Math.ceil(count / limit)
+        }
+      }
+    } catch (error) {
+      throw new Error(`Erro ao buscar Digimons: ${error.message}`)
     }
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      console.error('Erro em getAllDigimons:', error);
-      throw new Error('Não foi possível buscar os Digimons.');
-    }
-
-    return {
-      data: data.map(formatDigimon),
-      pagination: {
-        page,
-        limit,
-        total: count,
-        totalPages: Math.ceil(count / limit),
-      },
-    };
   }
-
+  
   /**
-   * Busca um Digimon pelo seu ID numérico.
+   * Busca Digimon por ID
    */
   async getDigimonById(id) {
-    const { data, error } = await supabase
-      .from('digimons')
-      .select('*')
-      .eq('id', id)
-      .single(); // .single() retorna um objeto em vez de um array
-
-    if (error && error.code !== 'PGRST116') { // PGRST116 é o erro "nenhuma linha encontrada", o que é ok
-      console.error('Erro em getDigimonById:', error);
-      throw new Error('Erro ao buscar Digimon por ID.');
+    try {
+      const { data, error } = await supabase
+        .from('digimons')
+        .select('*')
+        .eq('id', id)
+        .single()
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null // Não encontrado
+        }
+        throw error
+      }
+      
+      return data
+    } catch (error) {
+      throw new Error(`Erro ao buscar Digimon: ${error.message}`)
     }
-
-    return formatDigimon(data);
   }
-
+  
   /**
-   * Busca um Digimon pelo seu nome exato.
+   * Busca Digimon por nome
    */
   async getDigimonByName(name) {
-    const { data, error } = await supabase
-      .from('digimons')
-      .select('*')
-      .eq('name', name)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Erro em getDigimonByName:', error);
-      throw new Error('Erro ao buscar Digimon por nome.');
+    try {
+      const { data, error } = await supabase
+        .from('digimons')
+        .select('*')
+        .eq('name', name)
+        .single()
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null // Não encontrado
+        }
+        throw error
+      }
+      
+      return data
+    } catch (error) {
+      throw new Error(`Erro ao buscar Digimon: ${error.message}`)
     }
-
-    return formatDigimon(data);
   }
-
+  
   /**
-   * Busca Digimons usando uma pesquisa de texto parcial.
+   * Busca Digimons por termo de pesquisa
    */
-  async searchDigimons({ searchTerm, limit = 10 }) {
-    const { data, error } = await supabase
-      .from('digimons')
-      .select('*')
-      .ilike('name', `%${searchTerm}%`) // 'ilike' é case-insensitive
-      .limit(limit);
-
-    if (error) {
-      console.error('Erro em searchDigimons:', error);
-      throw new Error('Erro ao pesquisar Digimons.');
+  async searchDigimons(searchTerm, limit = 10) {
+    try {
+      const { data, error } = await supabase
+        .rpc('search_digimons', { search_term: searchTerm })
+        .limit(limit)
+      
+      if (error) {
+        throw error
+      }
+      
+      return data
+    } catch (error) {
+      throw new Error(`Erro na busca: ${error.message}`)
     }
-
-    return data.map(formatDigimon);
   }
-
+  
   /**
-   * Busca os dados completos de evolução (próximas, anteriores e requisitos).
+   * Obtém evoluções diretas de um Digimon
    */
-  async getEvolutionData(id) {
-    // 1. Busca o Digimon principal
-    const digimon = await this.getDigimonById(id);
-    if (!digimon) return { digimon: null };
-
-    // 2. Busca as próximas evoluções (JOIN na tabela evolutions)
-    const { data: evolvesTo, error: evolvesToError } = await supabase
-      .from('evolutions')
-      .select('to_digimon:digimons!evolutions_to_digimon_id_fkey (*)')
-      .eq('from_digimon_id', id);
-
-    // 3. Busca as pré-evoluções
-    const { data: evolvesFrom, error: evolvesFromError } = await supabase
-      .from('evolutions')
-      .select('from_digimon:digimons!evolutions_from_digimon_id_fkey (*)')
-      .eq('to_digimon_id', id);
-
-    // 4. Busca os requisitos
-    const { data: requirements, error: reqError } = await supabase
-      .from('requirements')
-      .select('*')
-      .eq('digimon_id', id);
-
-    if (evolvesToError || evolvesFromError || reqError) {
-        console.error({ evolvesToError, evolvesFromError, reqError });
-        throw new Error('Erro ao buscar dados de evolução.');
+  async getDigimonEvolutions(digimonId) {
+    try {
+      const { data, error } = await supabase
+        .from('evolutions')
+        .select(`
+          to_digimon_id,
+          to_digimon:digimons!evolutions_to_digimon_id_fkey (
+            id,
+            number,
+            name,
+            stage,
+            attribute,
+            image_filename
+          )
+        `)
+        .eq('from_digimon_id', digimonId)
+      
+      if (error) {
+        throw error
+      }
+      
+      return data.map(item => item.to_digimon)
+    } catch (error) {
+      throw new Error(`Erro ao buscar evoluções: ${error.message}`)
     }
-
-    return {
-      digimon: digimon,
-      evolves_to: evolvesTo.map(e => formatDigimon(e.to_digimon)),
-      evolves_from: evolvesFrom.map(e => formatDigimon(e.from_digimon)),
-      requirements: requirements,
-    };
   }
-
+  
   /**
-   * Obtém estatísticas gerais.
+   * Obtém pré-evoluções diretas de um Digimon
+   */
+  async getDigimonPreEvolutions(digimonId) {
+    try {
+      const { data, error } = await supabase
+        .from('evolutions')
+        .select(`
+          from_digimon_id,
+          from_digimon:digimons!evolutions_from_digimon_id_fkey (
+            id,
+            number,
+            name,
+            stage,
+            attribute,
+            image_filename
+          )
+        `)
+        .eq('to_digimon_id', digimonId)
+      
+      if (error) {
+        throw error
+      }
+      
+      return data.map(item => item.from_digimon)
+    } catch (error) {
+      throw new Error(`Erro ao buscar pré-evoluções: ${error.message}`)
+    }
+  }
+  
+  /**
+   * Obtém requisitos de evolução de um Digimon
+   */
+  async getDigimonRequirements(digimonId) {
+    try {
+      const { data, error } = await supabase
+        .from('evolution_requirements')
+        .select('*')
+        .eq('digimon_id', digimonId)
+        .order('requirement_type', { ascending: true })
+        .order('name', { ascending: true })
+      
+      if (error) {
+        throw error
+      }
+      
+      // Agrupar por tipo de requisito
+      const grouped = {
+        stats: [],
+        other: []
+      }
+      
+      data.forEach(req => {
+        if (req.requirement_type === 'stats') {
+          grouped.stats.push({
+            name: req.name,
+            value: req.value,
+            description: req.description
+          })
+        } else {
+          grouped.other.push({
+            name: req.name,
+            value: req.value,
+            description: req.description
+          })
+        }
+      })
+      
+      return grouped
+    } catch (error) {
+      throw new Error(`Erro ao buscar requisitos: ${error.message}`)
+    }
+  }
+  
+  /**
+   * Obtém linha evolutiva completa usando função SQL
+   */
+  async getEvolutionLine(digimonName) {
+    try {
+      const { data, error } = await supabase
+        .rpc('get_evolution_line', { digimon_name: digimonName })
+      
+      if (error) {
+        throw error
+      }
+      
+      // Agrupar por tipo de evolução
+      const result = {
+        current: null,
+        predecessors: [],
+        successors: []
+      }
+      
+      data.forEach(item => {
+        const digimon = {
+          id: item.digimon_id,
+          number: item.digimon_number,
+          name: item.digimon_name,
+          stage: item.digimon_stage,
+          attribute: item.digimon_attribute,
+          image_filename: item.digimon_image
+        }
+        
+        switch (item.evolution_type) {
+          case 'current':
+            result.current = digimon
+            break
+          case 'predecessor':
+            result.predecessors.push(digimon)
+            break
+          case 'successor':
+            result.successors.push(digimon)
+            break
+        }
+      })
+      
+      return result
+    } catch (error) {
+      throw new Error(`Erro ao buscar linha evolutiva: ${error.message}`)
+    }
+  }
+  
+  /**
+   * Obtém estatísticas gerais
    */
   async getStats() {
-    const { count: totalDigimons, error: totalError } = await supabase
-      .from('digimons')
-      .select('*', { count: 'exact', head: true });
-
-    const { data: stages, error: stagesError } = await supabase
-      .rpc('count_digimons_by_stage'); // Supabase RPC para funções customizadas
-
-    if (totalError || stagesError) {
-      console.error({ totalError, stagesError });
-      throw new Error('Erro ao buscar estatísticas.');
+    try {
+      // Contar total de Digimons
+      const { count: totalDigimons, error: countError } = await supabase
+        .from('digimons')
+        .select('*', { count: 'exact', head: true })
+      
+      if (countError) {
+        throw countError
+      }
+      
+      // Contar por stage
+      const { data: stageStats, error: stageError } = await supabase
+        .from('digimons')
+        .select('stage')
+        .then(({ data, error }) => {
+          if (error) throw error
+          
+          const counts = {}
+          data.forEach(item => {
+            counts[item.stage] = (counts[item.stage] || 0) + 1
+          })
+          
+          return { data: counts, error: null }
+        })
+      
+      if (stageError) {
+        throw stageError
+      }
+      
+      // Contar por atributo
+      const { data: attributeStats, error: attributeError } = await supabase
+        .from('digimons')
+        .select('attribute')
+        .then(({ data, error }) => {
+          if (error) throw error
+          
+          const counts = {}
+          data.forEach(item => {
+            counts[item.attribute] = (counts[item.attribute] || 0) + 1
+          })
+          
+          return { data: counts, error: null }
+        })
+      
+      if (attributeError) {
+        throw attributeError
+      }
+      
+      return {
+        total_digimons: totalDigimons,
+        by_stage: stageStats,
+        by_attribute: attributeStats
+      }
+    } catch (error) {
+      throw new Error(`Erro ao buscar estatísticas: ${error.message}`)
     }
-
-    return {
-      total_digimons: totalDigimons,
-      count_by_stage: stages,
-    };
   }
 }
