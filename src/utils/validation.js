@@ -30,16 +30,11 @@ export const schemas = {
       type: 'object',
       properties: {
         page: { 
-          type: 'integer', 
-          minimum: 1,
-          default: 1,
+          type: 'integer',
           description: 'Número da página'
         },
         limit: { 
-          type: 'integer', 
-          minimum: 1, 
-          maximum: 100,
-          default: 50,
+          type: 'integer',
           description: 'Itens por página'
         },
         stage: { 
@@ -105,11 +100,19 @@ export function sanitizeSearchTerm(term) {
  * Valida e normaliza parâmetros de paginação.
  */
 export function validatePagination(page, limit) {
-  const validatedPage = Math.max(1, parseInt(page) || 1);
-  const validatedLimit = Math.min(100, Math.max(1, parseInt(limit) || 50));
-  
-  return {
-    page: validatedPage,
-    limit: validatedLimit
-  };
+  // Converte para número. Se for NaN (ex: parseInt(undefined)), o resultado será NaN.
+  const pageNum = parseInt(page, 10);
+  const limitNum = parseInt(limit, 10);
+
+  // Verifica se ambos são números válidos e maiores que zero.
+  if (!isNaN(pageNum) && !isNaN(limitNum) && pageNum > 0 && limitNum > 0) {
+    return {
+      page: pageNum,
+      // Aplica um limite máximo para segurança, por exemplo, 200.
+      limit: Math.min(200, limitNum) 
+    };
+  }
+
+  // Se a paginação não for válida ou não for fornecida, retorna null.
+  return { page: null, limit: null };
 }

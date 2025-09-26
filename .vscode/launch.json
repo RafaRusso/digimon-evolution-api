@@ -1,17 +1,45 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-      {
-        "type": "node",
-        "request": "attach",
-        "name": "Attach to Node Process",
-        "address": "localhost",
-        "port": 9229,
-        "restart": true,
-        "skipFiles": [
-          "<node_internals>/**"
-        ]
-      }
-    ]
-  }
-  
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Fastify API",
+      "program": "${workspaceFolder}/src/server.ts",
+      "runtimeArgs": [
+        "--nolazy",
+        "-r",
+        "ts-node/register"
+      ],
+      "sourceMaps": true,
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "protocol": "inspector",
+      "restart": true,
+      "stopOnEntry": false,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+      // O "runtimeExecutable" é específico da sua máquina, pode manter se for o Node.js que você usa no projeto.
+      // "runtimeExecutable": "C:/Users/rafae/AppData/Local/fnm_multishells/14272_1751032759107/node.exe"
+    },
+    {
+      // Sua configuração de testes Jest pode ser mantida como está.
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Jest Integration Tests",
+      "program": "${workspaceFolder}/node_modules/jest/bin/jest.js",
+      "args": [
+        "--runInBand",
+        "--config",
+        "test/jest-integration.config.ts"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"],
+      "envFile": "${workspaceFolder}/.env.dev",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

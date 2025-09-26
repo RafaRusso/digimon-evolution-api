@@ -31,29 +31,17 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   process.exit(1); // Encerra o processo imediatamente com um código de erro.
 }
 
-// --- PASSO 2: Inicializar o Servidor Fastify ---
 const fastify = Fastify({
-  // Logger é ótimo para desenvolvimento.
-  // logger: {
-  //   level: 'info',
-  //   transport: {
-  //     target: 'pino-pretty',
-  //     options: {
-  //       translateTime: 'HH:MM:ss Z',
-  //       ignore: 'pid,hostname',
-  //     },
-  //   },
-  // },
-});
-
+  logger: true // É bom ter logs em desenvolvimento
+})
 // --- PASSO 3: Função Principal de Inicialização ---
 async function startServer() {
   try {
     console.log('🔌 Registrando plugins...');
     // CORS: Permite que seu frontend (ex: localhost:3000) acesse a API
     await fastify.register(cors, {
-      origin: CORS_ORIGIN || 'http://localhost:3000', // Permite o frontend local por padrão
-      credentials: true,
+      origin: '*', 
+      methods: ['GET']
     } );
 
     // Helmet para segurança básica

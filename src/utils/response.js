@@ -65,7 +65,8 @@ export function formatDigimonData(digimon, includeEvolutions = false, evolutions
     name: digimon.name,
     stage: digimon.stage,
     attribute: digimon.attribute,
-    imageUrl: digimon.image_filename ? `/images/${digimon.image_filename}` : null
+    image_url: digimon.image_url,
+    ...(digimon.requirements && { requirements: digimon.requirements })
   }
 
   if (includeEvolutions && evolutions) {
@@ -83,20 +84,34 @@ export function formatDigimonData(digimon, includeEvolutions = false, evolutions
 }
 
 /**
- * Formata linha evolutiva completa
+ * Formata recursivamente cada nó de uma árvore de evolução.
+ * @param {Array} tree - A árvore de sucessores ou predecessores.
+ * @returns {Array} - A árvore formatada.
+ */
+function formatTree(tree) {
+  if (!tree || tree.length === 0) {
+    return [];
+  }
+  return tree.map(node => ({
+    // Usa o spread operator para manter todos os campos do nó
+    ...formatDigimonData(node), // Garante a padronização de 'image_url'
+    // Formata recursivamente os filhos
+    evolutions: formatTree(node.evolutions), 
+  }));
+}
+
+/**
+ * Formata a resposta completa da linha evolutiva aninhada.
  */
 export function formatEvolutionLine(evolutionLine) {
-  if (!evolutionLine.current) {
-    return null
+  if (!evolutionLine || !evolutionLine.current) {
+    return null;
   }
-
   return {
     current: formatDigimonData(evolutionLine.current),
-    predecessors: evolutionLine.predecessors.map(d => formatDigimonData(d)),
-    successors: evolutionLine.successors.map(d => formatDigimonData(d)),
-    totalPredecessors: evolutionLine.predecessors.length,
-    totalSuccessors: evolutionLine.successors.length
-  }
+    successors: formatTree(evolutionLine.successors),
+    predecessors: formatTree(evolutionLine.predecessors),
+  };
 }
 
 /**

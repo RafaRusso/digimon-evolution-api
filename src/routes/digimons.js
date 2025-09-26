@@ -22,30 +22,6 @@ export default async function digimonRoutes(fastify, options) {
       description: 'Lista todos os Digimons com paginação e filtros',
       tags: ['Digimons'],
       querystring: schemas.listDigimons.querystring,
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            message: { type: 'string' },
-            data: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  id: { type: 'string' },
-                  number: { type: 'integer' },
-                  name: { type: 'string' },
-                  stage: { type: 'string' },
-                  attribute: { type: 'string' },
-                  imageUrl: { type: 'string' }
-                }
-              }
-            },
-            meta: { type: 'object' }
-          }
-        }
-      }
     }
   }, asyncHandler(async (request, reply) => {
     const { page, limit, stage } = validatePagination(
@@ -131,24 +107,6 @@ export default async function digimonRoutes(fastify, options) {
       description: 'Busca Digimon por ID',
       tags: ['Digimons'],
       params: schemas.digimonId.params,
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            message: { type: 'string' },
-            data: { type: 'object' }
-          }
-        },
-        404: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            error: { type: 'boolean' },
-            message: { type: 'string' }
-          }
-        }
-      }
     }
   }, asyncHandler(async (request, reply) => {
     const digimon = await digimonService.getDigimonById(request.params.id)
@@ -161,35 +119,38 @@ export default async function digimonRoutes(fastify, options) {
     reply.send(successResponse(formattedData, 'Digimon encontrado'))
   }))
 
-  // GET /api/digimons/:id/evolutions - Evoluções de um Digimon
-  fastify.get('/:id/evolutions', {
+  // GET /api/digimons/:id/evolutions - evoluções
+  fastify.get('/:id/evolutions', {     
     schema: {
-      description: 'Obtém evoluções diretas de um Digimon',
+      description: 'Obtém as evoluções diretas de um Digimon',
       tags: ['Evoluções'],
       params: schemas.digimonId.params
     }
   }, asyncHandler(async (request, reply) => {
-    const digimon = await digimonService.getDigimonById(request.params.id)
-    
+    const digimonId = request.params.id;
+
+    const digimon = await digimonService.getDigimonById(digimonId);
     if (!digimon) {
-      return reply.status(404).send(errorResponse('Digimon não encontrado', 404))
+      return reply.status(404).send(errorResponse('Digimon não encontrado', 404));
     }
     
-    const [evolutions, preEvolutions, requirements] = await Promise.all([
-      digimonService.getDigimonEvolutions(request.params.id),
-      digimonService.getDigimonPreEvolutions(request.params.id),
-      digimonService.getDigimonRequirements(request.params.id)
-    ])
+    // As duas buscas principais agora são feitas em paralelo
+    const [evolutions, preEvolutions] = await Promise.all([
+      // Esta chamada agora retorna as evoluções JÁ COM os requisitos!
+      digimonService.getDigimonEvolutions(digimonId),
+      digimonService.getDigimonPreEvolutions(digimonId)
+    ]);
     
+    // Monta a resposta final
     const evolutionData = {
       digimon: formatDigimonData(digimon),
+      // Não precisa mais de um map complexo, os dados já vêm prontos
       evolves_to: evolutions.map(d => formatDigimonData(d)),
-      evolves_from: preEvolutions.map(d => formatDigimonData(d)),
-      requirements: requirements
-    }
+      evolves_from: preEvolutions.map(d => formatDigimonData(d))
+    };
     
-    reply.send(successResponse(evolutionData, 'Dados de evolução recuperados'))
-  }))
+    reply.send(successResponse(evolutionData, 'Dados de evolução recuperados'));
+  }));
 
   // GET /api/digimons/:id/evolution-line - Linha evolutiva completa
   fastify.get('/:id/evolution-line', {
@@ -205,14 +166,13 @@ export default async function digimonRoutes(fastify, options) {
       return reply.status(404).send(errorResponse('Digimon não encontrado', 404))
     }
     
-    const evolutionLine = await digimonService.getEvolutionLine(digimon.name)
-    const formattedLine = formatEvolutionLine(evolutionLine)
-    
-    if (!formattedLine) {
-      return reply.status(404).send(errorResponse('Linha evolutiva não encontrada', 404))
-    }
-    
-    reply.send(successResponse(formattedLine, 'Linha evolutiva recuperada'))
+      const evolutionLine = await digimonService.getEvolutionLine(digimon.name);
+      
+      if (!evolutionLine) {
+        return reply.status(404).send(errorResponse('Digimon não encontrado', 404));
+      }
+
+      reply.send(successResponse(evolutionLine, 'Árvore evolutiva recuperada'));
   }))
 
   // GET /api/digimons/name/:name - Busca Digimon por nome exato
@@ -234,20 +194,20 @@ export default async function digimonRoutes(fastify, options) {
   }))
 
   // GET /api/digimons/name/:name/evolution-line - Linha evolutiva por nome
-  fastify.get('/name/:name/evolution-line', {
-    schema: {
-      description: 'Obtém linha evolutiva completa por nome do Digimon',
-      tags: ['Evoluções'],
-      params: schemas.digimonName.params
-    }
-  }, asyncHandler(async (request, reply) => {
-    const evolutionLine = await digimonService.getEvolutionLine(request.params.name)
-    const formattedLine = formatEvolutionLine(evolutionLine)
-    
-    if (!formattedLine) {
-      return reply.status(404).send(errorResponse('Digimon ou linha evolutiva não encontrada', 404))
-    }
-    
-    reply.send(successResponse(formattedLine, 'Linha evolutiva recuperada'))
-  }))
+    fastify.get('/name/:name/evolution-line', {     
+      schema: {
+        description: 'Obtém linha evolutiva completa de um Digimon',
+        tags: ['Evoluções'],
+        params: schemas.digimonName.params
+      }  
+    }, asyncHandler(async (request, reply) => {
+      const evolutionLine = await digimonService.getEvolutionLine(request.params.name);
+      
+      if (!evolutionLine) {
+        return reply.status(404).send(errorResponse('Digimon não encontrado', 404));
+      }
+      const formattedData = formatEvolutionLine(evolutionLine);
+      reply.send(successResponse(evolutionLine, 'Árvore evolutiva recuperada'));
+    }));
+
 }
