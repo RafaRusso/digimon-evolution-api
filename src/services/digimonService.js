@@ -37,24 +37,24 @@ export class DigimonService {
     try {
       let query = supabase
         .from('digimons')
-        .select(`*, requirements(*)`)
-        .order('number', { ascending: true })
-      
-      // Filtrar por stage se especificado
+        .select(`*, requirements(*)`, { count: 'exact' }); // <--- GARANTA QUE O COUNT ESTÁ AQUI
+  
       if (stage) {
-        query = query.eq('stage', stage)
+        query = query.eq('stage', stage);
       }
-      
+  
+      query = query.order('number', { ascending: true });
+  
       if (page && limit) {
         const from = (page - 1) * limit;
         const to = from + limit - 1;
         query = query.range(from, to);
       }
-      
-      const { data, error, count } = await query
-      
+  
+      const { data, error, count } = await query;
+  
       if (error) {
-        throw error
+        throw error;
       }
       const digimonsWithGroupedRequirements = data.map(digimon => {
         if (!digimon || !digimon.requirements) {
@@ -93,12 +93,12 @@ export class DigimonService {
         pagination: {
           page,
           limit,
-          total: count,
+          total: count, // <--- USE O COUNT AQUI
           totalPages: Math.ceil(count / limit)
         }
-      }
+      };
     } catch (error) {
-      throw new Error(`Erro ao buscar Digimons: ${error.message}`)
+      throw new Error(`Erro ao buscar Digimons: ${error.message}`);
     }
   }
   
@@ -409,81 +409,39 @@ export class DigimonService {
     return tree;
   }
 
-
   async getEvolutionLine(digimonName) {
     try {
-      // 1. Busca o Digimon atual e já agrupa seus requisitos
-      const { data: currentDigimonData, error: currentError } = await supabase
-        .from('digimons')
-        .select('*, requirements(*)')
-        .eq('name', digimonName)
-        .single();
-
-      if (currentError || !currentDigimonData) {
-        throw new Error(currentError?.message || 'Digimon não encontrado');
+      // Chama a nova função RPC super otimizada
+      const { data, error } = await supabase.rpc('get_evolution_tree_by_name', {
+        digimon_name_param: digimonName
+      });
+  
+      if (error) {
+        // Log detalhado no servidor para depuração
+        console.error(`RPC Error for '${digimonName}':`, error);
+        throw new Error(`Erro na consulta RPC: ${error.message}`);
       }
-      const currentDigimon = groupRequirements(currentDigimonData); // <-- USA A FUNÇÃO
-
-      // 2. Busca as listas de IDs
-      const [successorsResult, predecessorsResult] = await Promise.all([
-        supabase.rpc('get_evolution_flat_list', { digimon_name_param: digimonName }),
-        supabase.rpc('get_predecessor_flat_list', { digimon_name_param: digimonName })
-      ]);
-
-      if (successorsResult.error) throw successorsResult.error;
-      if (predecessorsResult.error) throw predecessorsResult.error;
-
-      // 3. Coleta IDs
-      const successorIds = successorsResult.data.map(item => item.child_id);
-      const predecessorIds = predecessorsResult.data.map(item => item.child_id);
-      const allIds = [...new Set([...successorIds, ...predecessorIds])];
-
-      if (allIds.length === 0) {
-        // Se não há evoluções, retorna logo
-        return {
-          current: currentDigimon,
-          successors: [],
-          predecessors: []
-        };
+  
+      if (!data) {
+        // Caso a RPC retorne nulo por algum motivo inesperado
+        throw new Error('A consulta RPC não retornou dados.');
       }
-
-      // 4. Busca dados de todos os Digimons da árvore
-      const { data: digimonsData, error: digimonsError } = await supabase
-        .from('digimons')
-        .select('*, requirements(*)')
-        .in('id', allIds);
-
-      if (digimonsError) throw digimonsError;
-
-      // 5. Cria mapa e JÁ AGRUPA os requisitos de cada um
-      const digimonsMap = new Map(
-        digimonsData.map(d => [d.id, groupRequirements(d)]) // <-- USA A FUNÇÃO
-      );
-
-      // 6. Monta lista de sucessores com dados completos
-      const successorsWithData = successorsResult.data.map(item => ({
-        ...digimonsMap.get(item.child_id),
-        parent_id: item.parent_id
-      }));
-
-      // 7. Monta lista de predecessores com dados completos
-      const predecessorsWithData = predecessorsResult.data.map(item => ({
-        ...digimonsMap.get(item.child_id),
-        parent_id: item.parent_id
-      }));
-
-      // 8. Constrói as árvores
-      const successorTree = this.buildTree(successorsWithData, 'parent_id', currentDigimon.id);
-      const predecessorTree = this.buildTree(predecessorsWithData, 'parent_id', currentDigimon.id);
-
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+  
+      // Os dados já vêm perfeitamente estruturados do banco de dados
       return {
-        current: currentDigimon,
-        successors: successorTree,
-        predecessors: predecessorTree
+        current: data.current,
+        predecessors: data.predecessors || [],
+        successors: data.successors || []
       };
-
+  
     } catch (error) {
-      throw new Error(`Erro ao buscar árvore evolutiva: ${error.message}`);
+      console.error(`Falha crítica ao carregar árvore evolutiva para ${digimonName}:`, error);
+      // Retorna um erro padronizado para o cliente
+      throw new Error(`Não foi possível carregar a árvore evolutiva. Tente novamente mais tarde.`);
     }
   }
 
