@@ -109,7 +109,7 @@ export function validatePagination(page, limit) {
     return {
       page: pageNum,
       // Aplica um limite máximo para segurança, por exemplo, 200.
-      limit: Math.min(200, limitNum) 
+      limit: Math.min(1000, limitNum) 
     };
   }
 
